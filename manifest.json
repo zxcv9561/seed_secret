@@ -1,0 +1,26 @@
+{
+  "name": "S.E.E.D. 내부 단말기",
+  "short_name": "S.E.E.D.",
+  "description": "카미가카리 Case Number Six 캠페인 전용 단말",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ece5d0",
+  "theme_color": "#1a1a1a",
+  "lang": "ko",
+  "scope": "./",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
