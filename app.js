@@ -199,7 +199,10 @@ function caseToRow(x, order) {
     blocks: x.blocks || [], sort_order: order || 0,
     visibility: x.visibility || 'public',
     owner_id: x.ownerId || null,
-    editor_ids: x.editorIds || []
+    editor_ids: x.editorIds || [],
+    parent_id: x.parentId || null,
+    depth: x.depth || 0,
+    is_folder: !!x.isFolder
   };
 }
 function caseFromRow(r) {
@@ -209,7 +212,10 @@ function caseFromRow(r) {
     observer: r.observer || '', blocks: r.blocks || [],
     visibility: r.visibility || 'public',
     ownerId: r.owner_id || null,
-    editorIds: r.editor_ids || []
+    editorIds: r.editor_ids || [],
+    parentId: r.parent_id || null,
+    depth: r.depth || 0,
+    isFolder: !!r.is_folder
   };
 }
 
@@ -219,7 +225,10 @@ function logToRow(x, order) {
     visibility: x.visibility || 'public',
     owner_id: x.ownerId || null,
     editor_ids: x.editorIds || [],
-    attachments: x.attachments || []
+    attachments: x.attachments || [],
+    parent_id: x.parentId || null,
+    depth: x.depth || 0,
+    is_folder: !!x.isFolder
   };
 }
 function logFromRow(r) {
@@ -228,7 +237,10 @@ function logFromRow(r) {
     visibility: r.visibility || 'public',
     ownerId: r.owner_id || null,
     editorIds: r.editor_ids || [],
-    attachments: r.attachments || []
+    attachments: r.attachments || [],
+    parentId: r.parent_id || null,
+    depth: r.depth || 0,
+    isFolder: !!r.is_folder
   };
 }
 
@@ -1067,6 +1079,119 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+/* Render sibling navigation bar for hierarchical items
+   type: 'dossier' or 'log'
+   currentItem: current item being viewed
+   Returns a DOM element or null if no siblings */
+function renderSiblingNav(type, currentItem) {
+  var arr = type === 'dossier' ? state.dossier : state.logs;
+  if (!arr) return null;
+  var visible = filterVisible(arr, type);
+
+  // Find siblings: items with same parentId
+  var siblings = visible.filter(function(x) {
+    return (x.parentId || null) === (currentItem.parentId || null);
+  });
+  // If parent exists, include parent at front
+  if (currentItem.parentId) {
+    var parent = findById(arr, currentItem.parentId);
+    if (parent) {
+      // Find children of this current item
+      var children = visible.filter(function(x) { return x.parentId === currentItem.id; });
+      // Show: parent | siblings | children if any
+      var nav = document.createElement('div');
+      nav.className = 'sibling-nav';
+
+      // Parent breadcrumb
+      var parentLink = document.createElement('button');
+      parentLink.className = 'sibling-parent';
+      parentLink.innerHTML = '◀ ' + esc(parent.target || parent.title);
+      parentLink.onclick = function() { openDetail(type, parent.id); };
+      nav.appendChild(parentLink);
+
+      // Siblings + current
+      if (siblings.length > 1) {
+        var siblingsBar = document.createElement('div');
+        siblingsBar.className = 'sibling-bar';
+        siblingsBar.innerHTML = '<div class="sibling-label">형제:</div>';
+        siblings.forEach(function(s) {
+          var btn = document.createElement('button');
+          btn.className = 'sibling-btn' + (s.id === currentItem.id ? ' active' : '');
+          var label = s.target || s.title;
+          if (s.isFolder) label = '▤ ' + label;
+          btn.textContent = label;
+          if (s.id !== currentItem.id) {
+            btn.onclick = function() { openDetail(type, s.id); };
+          }
+          siblingsBar.appendChild(btn);
+        });
+        nav.appendChild(siblingsBar);
+      }
+
+      // Children if any
+      if (children.length > 0) {
+        var childrenBar = document.createElement('div');
+        childrenBar.className = 'sibling-bar children-bar';
+        childrenBar.innerHTML = '<div class="sibling-label">하위:</div>';
+        children.forEach(function(c) {
+          var btn = document.createElement('button');
+          btn.className = 'sibling-btn child-btn';
+          var label = c.target || c.title;
+          if (c.isFolder) label = '▤ ' + label;
+          btn.textContent = label;
+          btn.onclick = function() { openDetail(type, c.id); };
+          childrenBar.appendChild(btn);
+        });
+        nav.appendChild(childrenBar);
+      }
+      return nav;
+    }
+  }
+
+  // No parent: just show siblings (top-level) and children
+  var children2 = visible.filter(function(x) { return x.parentId === currentItem.id; });
+  if (children2.length === 0 && siblings.length <= 1) return null;
+
+  var nav2 = document.createElement('div');
+  nav2.className = 'sibling-nav';
+
+  if (siblings.length > 1) {
+    var siblingsBar2 = document.createElement('div');
+    siblingsBar2.className = 'sibling-bar';
+    siblingsBar2.innerHTML = '<div class="sibling-label">최상위:</div>';
+    siblings.forEach(function(s) {
+      var btn = document.createElement('button');
+      btn.className = 'sibling-btn' + (s.id === currentItem.id ? ' active' : '');
+      var label = s.target || s.title;
+      if (s.isFolder) label = '▤ ' + label;
+      btn.textContent = label;
+      if (s.id !== currentItem.id) {
+        btn.onclick = function() { openDetail(type, s.id); };
+      }
+      siblingsBar2.appendChild(btn);
+    });
+    nav2.appendChild(siblingsBar2);
+  }
+
+  if (children2.length > 0) {
+    var childrenBar2 = document.createElement('div');
+    childrenBar2.className = 'sibling-bar children-bar';
+    childrenBar2.innerHTML = '<div class="sibling-label">하위:</div>';
+    children2.forEach(function(c) {
+      var btn = document.createElement('button');
+      btn.className = 'sibling-btn child-btn';
+      var label = c.target || c.title;
+      if (c.isFolder) label = '▤ ' + label;
+      btn.textContent = label;
+      btn.onclick = function() { openDetail(type, c.id); };
+      childrenBar2.appendChild(btn);
+    });
+    nav2.appendChild(childrenBar2);
+  }
+
+  return nav2;
+}
+
 /* Strip HTML tags - use for list rendering where title may contain styling */
 function stripHtml(s) {
   if (s == null) return '';
@@ -1487,7 +1612,7 @@ function render() {
 
 function renderSection(view) {
   if (state.section === 'about')       renderAboutList(view);
-  else if (state.section === 'cases')      renderCasesList(view);
+  else if (state.section === 'cases')      { state.section = 'logs'; render(); return; }
   else if (state.section === 'dossier')    renderDossierList(view);
   else if (state.section === 'agents')     renderAgentsList(view);
   else if (state.section === 'logs')       renderLogsList(view);
@@ -2038,23 +2163,33 @@ function renderDossierList(view) {
   view.appendChild(sectionHeader('대상 보고서', 'Active Dossier · Deep Report',
     canCreate('dossier') ? '+ 보고서 추가' : null,
     function() {
-    var d = {
-      id: genId('dossier'),
-      caseNo: '000-0000-Ⅰ',
-      target: '심화 보고서 제목',
-      classLevel: '1',
-      sector: '본부',
-      status: '작성 중',
-      observer: '000-0000',
-      blocks: [],
-      visibility: 'public',
-      ownerId: currentUser ? currentUser.agentId : null,
-      editorIds: []
+      // Open new-item modal with type choice
+      openNewDossierModal(null);
+    }));
+
+  // "+ 폴더 추가" extra button on right (for master)
+  if (canCreate('dossier') && isMaster()) {
+    var extraBar = document.createElement('div');
+    extraBar.style.cssText = 'margin: 4px 0 12px 0; display: flex; gap: 6px; flex-wrap: wrap;';
+    extraBar.innerHTML = '<button class="btn-sm" id="add-dossier-folder">+ 폴더 추가</button>';
+    extraBar.querySelector('#add-dossier-folder').onclick = function() {
+      showPrompt('폴더 추가', '폴더 이름을 입력하세요 (예: 관리개체, 요주의 조직, 사건사고)').then(function(v) {
+        if (!v) return;
+        var f = {
+          id: genId('dossier'), caseNo: '', target: v, classLevel: '1',
+          sector: '', status: '', observer: '', blocks: [],
+          visibility: 'public',
+          ownerId: currentUser ? currentUser.agentId : null,
+          editorIds: [],
+          parentId: null, depth: 0, isFolder: true
+        };
+        state.dossier.push(f);
+        saveEntity('dossier', f.id);
+        render();
+      });
     };
-    state.dossier.push(d);
-    saveEntity('dossier', d.id);
-    openDetail('dossier', d.id);
-  }));
+    view.appendChild(extraBar);
+  }
 
   appendSearchInput(view);
 
@@ -2074,27 +2209,274 @@ function renderDossierList(view) {
     return;
   }
 
+  // Build tree
+  renderHierarchicalListTable(view, visible, 'dossier');
+}
+
+function openNewDossierModal(parentId) {
+  // Find parent for context
+  var parentName = parentId ? (findById(state.dossier, parentId) || {}).target || '' : '';
+  var d = {
+    id: genId('dossier'),
+    caseNo: '000-0000-Ⅰ',
+    target: '심화 보고서 제목',
+    classLevel: '1',
+    sector: '본부',
+    status: '작성 중',
+    observer: '000-0000',
+    blocks: [],
+    visibility: 'public',
+    ownerId: currentUser ? currentUser.agentId : null,
+    editorIds: [],
+    parentId: parentId,
+    depth: 0,
+    isFolder: false
+  };
+  // Set depth based on parent
+  if (parentId) {
+    var parent = findById(state.dossier, parentId);
+    if (parent) d.depth = (parent.depth || 0) + 1;
+  }
+  state.dossier.push(d);
+  saveEntity('dossier', d.id);
+  openDetail('dossier', d.id);
+}
+
+/* Render a list-table with hierarchy support (folders + collapsible children).
+   type: 'dossier' or 'log' */
+function renderHierarchicalListTable(view, items, type) {
+  // Build tree
+  var tree = buildTree(items, 'parentId');
+
+  // Track expanded state in localStorage
+  var expandKey = 'seed_expand_' + type;
+  var expanded = {};
+  try {
+    expanded = JSON.parse(localStorage.getItem(expandKey) || '{}');
+  } catch(e) { expanded = {}; }
+
+  var saveExpanded = function() {
+    try { localStorage.setItem(expandKey, JSON.stringify(expanded)); } catch(e) {}
+  };
+
   var table = document.createElement('table');
-  table.className = 'list-table';
-  table.innerHTML =
-    '<thead><tr>' +
-      '<th>CASE-NO</th><th>대상 / TARGET</th><th>CLASS</th><th>STATUS</th><th>SECTOR</th>' +
-    '</tr></thead><tbody></tbody>';
+  table.className = 'list-table hierarchy-table';
+
+  if (type === 'dossier') {
+    table.innerHTML =
+      '<thead><tr>' +
+        '<th class="col-target-th">대상 / TARGET</th>' +
+        '<th class="col-class-th">CLASS</th>' +
+        '<th class="col-status-th">STATUS</th>' +
+        '<th class="col-sector-th">SECTOR</th>' +
+      '</tr></thead><tbody></tbody>';
+  } else {
+    // logs
+    table.innerHTML =
+      '<thead><tr>' +
+        '<th>일지 / TITLE</th>' +
+        '<th class="col-date-th">DATE</th>' +
+      '</tr></thead><tbody></tbody>';
+  }
   var tbody = table.querySelector('tbody');
 
-  visible.forEach(function(d) {
+  function renderItemRow(item, depth, isLastChild) {
     var tr = document.createElement('tr');
-    var fav = isFavorited('dossier', d.id) ? ' <span style="color:var(--class-yellow)">★</span>' : '';
-    tr.innerHTML =
-      '<td class="col-mono">' + esc(d.caseNo) + '</td>' +
-      '<td>' + esc(d.target) + fav + ' ' + visibilityBadge(d, 'dossier') + '</td>' +
-      '<td class="col-status"><span class="cls-pip c-' + esc(d.classLevel) + '">●</span>' + esc(classLabel(d.classLevel)) + '</td>' +
-      '<td class="col-mono">[' + esc(d.status) + ']</td>' +
-      '<td class="col-mono">' + esc(d.sector) + '</td>';
-    tr.onclick = function() { openDetail('dossier', d.id); };
+    var fav = isFavorited(type, item.id) ? ' <span style="color:var(--class-yellow)">★</span>' : '';
+    var hasChildren = item.children && item.children.length > 0;
+    var isExpanded = expanded[item.id] !== false; // default expanded
+    var indent = depth * 20;
+
+    if (item.isFolder) {
+      tr.classList.add('row-folder');
+      var arrow = hasChildren ? (isExpanded ? '▼' : '▶') : '◌';
+      var foldername = '<span class="folder-arrow">' + arrow + '</span><span class="folder-icon">▤</span> <b>' + esc(item.target || item.title) + '</b>';
+      if (type === 'dossier') {
+        // Folder row in dossier - colspan everything after
+        tr.innerHTML =
+          '<td class="col-target hierarchy-cell" style="padding-left:' + (12 + indent) + 'px;">' + foldername + fav + '</td>' +
+          '<td colspan="3" class="col-mono folder-meta">' + (hasChildren ? item.children.length + '개 항목' : '비어있음') + '</td>';
+      } else {
+        tr.innerHTML =
+          '<td class="hierarchy-cell" style="padding-left:' + (12 + indent) + 'px;">' + foldername + fav + '</td>' +
+          '<td class="col-mono folder-meta">' + (hasChildren ? item.children.length + '개 항목' : '비어있음') + '</td>';
+      }
+      tr.onclick = function(e) {
+        // Toggle expand
+        expanded[item.id] = !isExpanded;
+        saveExpanded();
+        render();
+      };
+    } else {
+      // Regular item
+      if (type === 'dossier') {
+        var indentMark = depth > 0 ? '<span class="depth-indent">└</span>' : '';
+        tr.innerHTML =
+          '<td class="col-target hierarchy-cell" style="padding-left:' + (12 + indent) + 'px;">' + indentMark + esc(item.target) + fav + ' ' + visibilityBadge(item, 'dossier') + '</td>' +
+          '<td class="col-status"><span class="cls-pip c-' + esc(item.classLevel) + '">●</span>' + esc(classLabel(item.classLevel)) + '</td>' +
+          '<td class="col-mono">[' + esc(item.status) + ']</td>' +
+          '<td class="col-mono">' + esc(item.sector) + '</td>';
+      } else {
+        var indentMark2 = depth > 0 ? '<span class="depth-indent">└</span>' : '';
+        tr.innerHTML =
+          '<td class="hierarchy-cell" style="padding-left:' + (12 + indent) + 'px;">' + indentMark2 + esc(item.title) + fav + ' ' + visibilityBadge(item, 'log') + '</td>' +
+          '<td class="col-mono">' + esc(item.date) + '</td>';
+      }
+      tr.onclick = function() { openDetail(type, item.id); };
+    }
     tbody.appendChild(tr);
-  });
+
+    // Render children if expanded
+    if (hasChildren && isExpanded) {
+      item.children.forEach(function(child, idx) {
+        renderItemRow(child, depth + 1, idx === item.children.length - 1);
+      });
+    }
+  }
+
+  tree.forEach(function(node) { renderItemRow(node, 0, false); });
   view.appendChild(table);
+}
+
+function openDossierParentChange(d) {
+  // Open simple parent picker for dossier
+  var backdrop = document.createElement('div');
+  backdrop.className = 'confirm-backdrop open';
+  backdrop.style.zIndex = '320';
+
+  var box = document.createElement('div');
+  box.className = 'confirm-box';
+  box.style.maxWidth = '440px';
+  box.style.width = '90vw';
+
+  // Available folders only (not regular items, and not self/descendants)
+  var folders = state.dossier.filter(function(x) { return x.isFolder; });
+  var excludeIds = { [d.id]: true };
+  function markDesc(pid) {
+    state.dossier.forEach(function(x) {
+      if (x.parentId === pid && !excludeIds[x.id]) {
+        excludeIds[x.id] = true;
+        markDesc(x.id);
+      }
+    });
+  }
+  markDesc(d.id);
+  folders = folders.filter(function(f) { return !excludeIds[f.id]; });
+
+  // Filter by depth - if the item being moved is a folder, the new parent must allow another level
+  if (d.isFolder) {
+    folders = folders.filter(function(f) { return (f.depth || 0) === 0; });
+  } else {
+    folders = folders.filter(function(f) { return (f.depth || 0) <= 1; });
+  }
+
+  var optionsHtml = '<label class="parent-opt"><input type="radio" name="parent-sel" value="__root__"' + (!d.parentId ? ' checked' : '') + '><span>(최상위)</span></label>';
+  folders.forEach(function(f) {
+    var indent = '　'.repeat(f.depth || 0);
+    var checked = d.parentId === f.id ? ' checked' : '';
+    optionsHtml += '<label class="parent-opt"><input type="radio" name="parent-sel" value="' + esc(f.id) + '"' + checked + '><span>' + indent + '▤ ' + esc(f.target) + '</span></label>';
+  });
+
+  box.innerHTML =
+    '<div class="confirm-title">⇄ 위치 변경</div>' +
+    '<div class="confirm-msg">「' + esc(d.target) + '」을 어디로 이동하시겠습니까?</div>' +
+    '<div class="parent-opts">' + optionsHtml + '</div>' +
+    '<div class="confirm-actions">' +
+      '<button class="btn-ghost" id="pm-cancel">취소</button>' +
+      '<button class="btn-primary" id="pm-ok">● 이동</button>' +
+    '</div>';
+
+  backdrop.appendChild(box);
+  document.body.appendChild(backdrop);
+
+  box.querySelector('#pm-cancel').onclick = function() { backdrop.remove(); };
+  box.querySelector('#pm-ok').onclick = function() {
+    var sel = box.querySelector('input[name="parent-sel"]:checked');
+    if (!sel) return;
+    var v = sel.value;
+    if (v === '__root__') {
+      d.parentId = null;
+      d.depth = 0;
+    } else {
+      var newParent = findById(state.dossier, v);
+      if (newParent) {
+        d.parentId = v;
+        d.depth = (newParent.depth || 0) + 1;
+      }
+    }
+    saveEntity('dossier', d.id);
+    backdrop.remove();
+    render();
+  };
+}
+
+function openLogParentChange(l) {
+  var backdrop = document.createElement('div');
+  backdrop.className = 'confirm-backdrop open';
+  backdrop.style.zIndex = '320';
+
+  var box = document.createElement('div');
+  box.className = 'confirm-box';
+  box.style.maxWidth = '440px';
+  box.style.width = '90vw';
+
+  var folders = state.logs.filter(function(x) { return x.isFolder; });
+  var excludeIds = { [l.id]: true };
+  function markDesc(pid) {
+    state.logs.forEach(function(x) {
+      if (x.parentId === pid && !excludeIds[x.id]) {
+        excludeIds[x.id] = true;
+        markDesc(x.id);
+      }
+    });
+  }
+  markDesc(l.id);
+  folders = folders.filter(function(f) { return !excludeIds[f.id]; });
+
+  if (l.isFolder) {
+    folders = folders.filter(function(f) { return (f.depth || 0) === 0; });
+  } else {
+    folders = folders.filter(function(f) { return (f.depth || 0) <= 1; });
+  }
+
+  var optionsHtml = '<label class="parent-opt"><input type="radio" name="parent-sel" value="__root__"' + (!l.parentId ? ' checked' : '') + '><span>(최상위)</span></label>';
+  folders.forEach(function(f) {
+    var indent = '　'.repeat(f.depth || 0);
+    var checked = l.parentId === f.id ? ' checked' : '';
+    optionsHtml += '<label class="parent-opt"><input type="radio" name="parent-sel" value="' + esc(f.id) + '"' + checked + '><span>' + indent + '▤ ' + esc(f.title) + '</span></label>';
+  });
+
+  box.innerHTML =
+    '<div class="confirm-title">⇄ 위치 변경</div>' +
+    '<div class="confirm-msg">「' + esc(l.title) + '」을 어디로 이동하시겠습니까?</div>' +
+    '<div class="parent-opts">' + optionsHtml + '</div>' +
+    '<div class="confirm-actions">' +
+      '<button class="btn-ghost" id="pm-cancel">취소</button>' +
+      '<button class="btn-primary" id="pm-ok">● 이동</button>' +
+    '</div>';
+
+  backdrop.appendChild(box);
+  document.body.appendChild(backdrop);
+
+  box.querySelector('#pm-cancel').onclick = function() { backdrop.remove(); };
+  box.querySelector('#pm-ok').onclick = function() {
+    var sel = box.querySelector('input[name="parent-sel"]:checked');
+    if (!sel) return;
+    var v = sel.value;
+    if (v === '__root__') {
+      l.parentId = null;
+      l.depth = 0;
+    } else {
+      var newParent = findById(state.logs, v);
+      if (newParent) {
+        l.parentId = v;
+        l.depth = (newParent.depth || 0) + 1;
+      }
+    }
+    saveEntity('log', l.id);
+    backdrop.remove();
+    render();
+  };
 }
 
 function renderDossierDetail(view, id) {
@@ -2103,6 +2485,106 @@ function renderDossierDetail(view, id) {
   if (!canView(d, 'dossier')) { backToList(); return; }
 
   view.appendChild(backButton());
+
+  // Sibling/parent/children navigation
+  var sibNav = renderSiblingNav('dossier', d);
+  if (sibNav) view.appendChild(sibNav);
+
+  // If folder, redirect to list view (folders don't have content)
+  if (d.isFolder) {
+    var folderInfo = document.createElement('div');
+    folderInfo.className = 'folder-detail-info';
+    var children = state.dossier.filter(function(x) { return x.parentId === d.id; });
+    folderInfo.innerHTML =
+      '<div class="folder-detail-header">' +
+        '<div class="folder-detail-icon">▤</div>' +
+        '<div>' +
+          '<div class="folder-detail-title">' + esc(d.target) + '</div>' +
+          '<div class="folder-detail-meta">폴더 · ' + children.length + '개 항목</div>' +
+        '</div>' +
+      '</div>';
+      
+    if (isMaster()) {
+      var actions = document.createElement('div');
+      actions.style.cssText = 'display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;';
+      actions.innerHTML =
+        '<button class="btn-sm" id="folder-rename">이름 변경</button>' +
+        '<button class="btn-sm" id="folder-move">⇄ 위치 변경</button>' +
+        '<button class="btn-sm" id="folder-add-item">+ 보고서 추가 (이 폴더에)</button>' +
+        '<button class="btn-sm" id="folder-add-sub">+ 하위 폴더</button>' +
+        '<button class="btn-danger btn-sm" id="folder-del">● 폴더 삭제</button>';
+      folderInfo.appendChild(actions);
+    }
+    view.appendChild(folderInfo);
+
+    // Wire folder action buttons
+    var renameB = folderInfo.querySelector('#folder-rename');
+    if (renameB) renameB.onclick = function() {
+      showPrompt('폴더 이름 변경', '새 이름', d.target).then(function(v) {
+        if (!v) return;
+        d.target = v;
+        saveEntity('dossier', d.id);
+        render();
+      });
+    };
+    var moveB = folderInfo.querySelector('#folder-move');
+    if (moveB) moveB.onclick = function() { openDossierParentChange(d); };
+    var addItemB = folderInfo.querySelector('#folder-add-item');
+    if (addItemB) addItemB.onclick = function() { openNewDossierModal(d.id); };
+    var addSubB = folderInfo.querySelector('#folder-add-sub');
+    if (addSubB) addSubB.onclick = function() {
+      if (d.depth >= 1) { alert('최대 2단계까지만 가능합니다'); return; }
+      showPrompt('하위 폴더 추가', '하위 폴더 이름').then(function(v) {
+        if (!v) return;
+        var sub = {
+          id: genId('dossier'), caseNo: '', target: v, classLevel: '1',
+          sector: '', status: '', observer: '', blocks: [],
+          visibility: 'public',
+          ownerId: currentUser ? currentUser.agentId : null,
+          editorIds: [],
+          parentId: d.id, depth: (d.depth || 0) + 1, isFolder: true
+        };
+        state.dossier.push(sub);
+        saveEntity('dossier', sub.id);
+        render();
+      });
+    };
+    var delB = folderInfo.querySelector('#folder-del');
+    if (delB) delB.onclick = function() {
+      var childCount = state.dossier.filter(function(x) { return x.parentId === d.id; }).length;
+      var msg = '「' + d.target + '」 폴더를 삭제합니다.';
+      if (childCount > 0) msg += '\n\n⚠ 하위 ' + childCount + '개 항목도 함께 삭제됩니다.';
+      showConfirm('폴더 삭제', msg, '삭제').then(function(v) {
+        if (!v) return;
+        // Recursively collect IDs to delete
+        var toDelete = [d.id];
+        function collectDesc(parentId) {
+          state.dossier.forEach(function(x) {
+            if (x.parentId === parentId && toDelete.indexOf(x.id) < 0) {
+              toDelete.push(x.id);
+              collectDesc(x.id);
+            }
+          });
+        }
+        collectDesc(d.id);
+        // Collect storage URLs
+        var urls = [];
+        toDelete.forEach(function(did) {
+          var item = findById(state.dossier, did);
+          if (item) urls = urls.concat(collectBlockUrls(item.blocks));
+        });
+        deleteStorageFiles(urls);
+        // Remove from state
+        state.dossier = state.dossier.filter(function(x) { return toDelete.indexOf(x.id) < 0; });
+        // Delete from DB
+        toDelete.forEach(function(did) {
+          sb.from('dossier').delete().eq('id', did).then(function(){});
+        });
+        backToList();
+      });
+    };
+    return;
+  }
 
   var page = document.createElement('div');
   page.className = 'detail-page';
@@ -2399,14 +2881,11 @@ function renderAgentsList(view) {
     var grid = document.createElement('div');
     grid.className = 'agent-grid';
     grid.setAttribute('data-group-id', g.id);
-
     if (visibleAgents.length === 0) {
-      // Add empty placeholder that's still a valid drop target
-      var empty = document.createElement('div');
-      empty.className = 'agent-grid-empty';
-      empty.textContent = q ? '검색 결과 없음' : '● 등록된 요원 없음 (요원을 여기로 드래그하거나 "+ 요원 추가")';
-      grid.appendChild(empty);
-    } else {
+      grid.classList.add('is-empty');
+    }
+
+    if (visibleAgents.length > 0) {
       visibleAgents.forEach(function(a) {
         var card = document.createElement('div');
         card.className = 'agent-card';
@@ -2460,16 +2939,14 @@ function renderAgentsList(view) {
         handle: '.agent-drag-handle',
         ghostClass: 'agent-ghost',
         chosenClass: 'agent-chosen',
-        filter: '.agent-grid-empty',  // don't let placeholder be draggable
         delay: 0,
         delayOnTouchOnly: true,
         touchStartThreshold: 5,
-        onAdd: function(evt) {
-          // When an item is added to this grid, remove placeholder if present
-          var placeholder = evt.to.querySelector('.agent-grid-empty');
-          if (placeholder) placeholder.remove();
+        onStart: function() {
+          document.body.classList.add('is-dragging-agent');
         },
         onEnd: async function(evt) {
+          document.body.classList.remove('is-dragging-agent');
           var agentId = evt.item.getAttribute('data-agent-id');
           var fromGroupId = evt.from.getAttribute('data-group-id');
           var toGroupId = evt.to.getAttribute('data-group-id');
@@ -7284,16 +7761,41 @@ function renderLogsList(view) {
   view.appendChild(sectionHeader('작전 일지', 'Operation Logs',
     canCreate('log') ? '+ 일지 추가' : null,
     function() {
-    var l = {
-      id: genId('log'), title: '새 작전 일지', date: todayStr(), blocks: [],
-      visibility: 'public',
-      ownerId: currentUser ? currentUser.agentId : null,
-      editorIds: []
+      var l = {
+        id: genId('log'), title: '새 작전 일지', date: todayStr(), blocks: [],
+        visibility: 'public',
+        ownerId: currentUser ? currentUser.agentId : null,
+        editorIds: [],
+        parentId: null, depth: 0, isFolder: false
+      };
+      state.logs.push(l);
+      saveEntity('log', l.id);
+      openDetail('log', l.id);
+    }));
+
+  // "+ 폴더 추가" extra button on right (for master)
+  if (canCreate('log') && isMaster()) {
+    var extraBar = document.createElement('div');
+    extraBar.style.cssText = 'margin: 4px 0 12px 0; display: flex; gap: 6px; flex-wrap: wrap;';
+    extraBar.innerHTML = '<button class="btn-sm" id="add-log-folder">+ 폴더 추가</button>';
+    extraBar.querySelector('#add-log-folder').onclick = function() {
+      showPrompt('폴더 추가', '폴더 이름을 입력하세요 (예: 시즌 1, 시즌 2)').then(function(v) {
+        if (!v) return;
+        var f = {
+          id: genId('log'), title: v, date: '', blocks: [],
+          visibility: 'public',
+          ownerId: currentUser ? currentUser.agentId : null,
+          editorIds: [],
+          attachments: [],
+          parentId: null, depth: 0, isFolder: true
+        };
+        state.logs.push(f);
+        saveEntity('log', f.id);
+        render();
+      });
     };
-    state.logs.push(l);
-    saveEntity('log', l.id);
-    openDetail('log', l.id);
-  }));
+    view.appendChild(extraBar);
+  }
 
   appendSearchInput(view);
 
@@ -7311,21 +7813,7 @@ function renderLogsList(view) {
     return;
   }
 
-  var list = document.createElement('div');
-  list.className = 'log-list';
-
-  visible.forEach(function(l) {
-    var row = document.createElement('div');
-    row.className = 'log-row';
-    var fav = isFavorited('log', l.id) ? ' <span style="color:var(--class-yellow)">★</span>' : '';
-    row.innerHTML =
-      '<div class="lr-title">' + esc(l.title) + fav + ' ' + visibilityBadge(l, 'log') + '</div>' +
-      '<div class="lr-date">' + esc(l.date || '') + '</div>';
-    row.onclick = function() { openDetail('log', l.id); };
-    list.appendChild(row);
-  });
-
-  view.appendChild(list);
+  renderHierarchicalListTable(view, visible, 'log');
 }
 
 function renderLogDetail(view, id) {
@@ -7334,6 +7822,113 @@ function renderLogDetail(view, id) {
   if (!canView(l, 'log')) { backToList(); return; }
 
   view.appendChild(backButton());
+
+  // Sibling/parent/children navigation
+  var sibNav = renderSiblingNav('log', l);
+  if (sibNav) view.appendChild(sibNav);
+
+  // If folder, show folder management UI instead of blocks
+  if (l.isFolder) {
+    var folderInfo = document.createElement('div');
+    folderInfo.className = 'folder-detail-info';
+    var children = state.logs.filter(function(x) { return x.parentId === l.id; });
+    folderInfo.innerHTML =
+      '<div class="folder-detail-header">' +
+        '<div class="folder-detail-icon">▤</div>' +
+        '<div>' +
+          '<div class="folder-detail-title">' + esc(l.title) + '</div>' +
+          '<div class="folder-detail-meta">폴더 · ' + children.length + '개 항목</div>' +
+        '</div>' +
+      '</div>';
+
+    if (isMaster()) {
+      var actions = document.createElement('div');
+      actions.style.cssText = 'display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;';
+      actions.innerHTML =
+        '<button class="btn-sm" id="folder-rename">이름 변경</button>' +
+        '<button class="btn-sm" id="folder-move">⇄ 위치 변경</button>' +
+        '<button class="btn-sm" id="folder-add-item">+ 일지 추가 (이 폴더에)</button>' +
+        '<button class="btn-sm" id="folder-add-sub">+ 하위 폴더</button>' +
+        '<button class="btn-danger btn-sm" id="folder-del">● 폴더 삭제</button>';
+      folderInfo.appendChild(actions);
+    }
+    view.appendChild(folderInfo);
+
+    var renameB = folderInfo.querySelector('#folder-rename');
+    if (renameB) renameB.onclick = function() {
+      showPrompt('폴더 이름 변경', '새 이름', l.title).then(function(v) {
+        if (!v) return;
+        l.title = v;
+        saveEntity('log', l.id);
+        render();
+      });
+    };
+    var moveB = folderInfo.querySelector('#folder-move');
+    if (moveB) moveB.onclick = function() { openLogParentChange(l); };
+    var addItemB = folderInfo.querySelector('#folder-add-item');
+    if (addItemB) addItemB.onclick = function() {
+      var newL = {
+        id: genId('log'), title: '새 작전 일지', date: todayStr(), blocks: [],
+        visibility: 'public',
+        ownerId: currentUser ? currentUser.agentId : null,
+        editorIds: [],
+        attachments: [],
+        parentId: l.id, depth: (l.depth || 0) + 1, isFolder: false
+      };
+      state.logs.push(newL);
+      saveEntity('log', newL.id);
+      openDetail('log', newL.id);
+    };
+    var addSubB = folderInfo.querySelector('#folder-add-sub');
+    if (addSubB) addSubB.onclick = function() {
+      if (l.depth >= 1) { alert('최대 2단계까지만 가능합니다'); return; }
+      showPrompt('하위 폴더 추가', '하위 폴더 이름').then(function(v) {
+        if (!v) return;
+        var sub = {
+          id: genId('log'), title: v, date: '', blocks: [],
+          visibility: 'public',
+          ownerId: currentUser ? currentUser.agentId : null,
+          editorIds: [],
+          attachments: [],
+          parentId: l.id, depth: (l.depth || 0) + 1, isFolder: true
+        };
+        state.logs.push(sub);
+        saveEntity('log', sub.id);
+        render();
+      });
+    };
+    var delB = folderInfo.querySelector('#folder-del');
+    if (delB) delB.onclick = function() {
+      var childCount = state.logs.filter(function(x) { return x.parentId === l.id; }).length;
+      var msg = '「' + l.title + '」 폴더를 삭제합니다.';
+      if (childCount > 0) msg += '\n\n⚠ 하위 ' + childCount + '개 항목도 함께 삭제됩니다.';
+      showConfirm('폴더 삭제', msg, '삭제').then(function(v) {
+        if (!v) return;
+        var toDelete = [l.id];
+        function collectDesc(parentId) {
+          state.logs.forEach(function(x) {
+            if (x.parentId === parentId && toDelete.indexOf(x.id) < 0) {
+              toDelete.push(x.id);
+              collectDesc(x.id);
+            }
+          });
+        }
+        collectDesc(l.id);
+        var urls = [];
+        toDelete.forEach(function(lid) {
+          var item = findById(state.logs, lid);
+          if (item) urls = urls.concat(collectBlockUrls(item.blocks));
+        });
+        deleteStorageFiles(urls);
+        state.logs = state.logs.filter(function(x) { return toDelete.indexOf(x.id) < 0; });
+        toDelete.forEach(function(lid) {
+          sb.from('logs').delete().eq('id', lid).then(function(){});
+        });
+        backToList();
+      });
+    };
+    return;
+  }
 
   var page = document.createElement('div');
   page.className = 'detail-page';

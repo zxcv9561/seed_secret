@@ -4,7 +4,7 @@
    - 네트워크 우선, 실패 시 캐시 폴백
    ═══════════════════════════════════════════ */
 
-const CACHE_VERSION = 'seed-v3-1-3';
+const CACHE_VERSION = 'seed-v3-1-4';
 const CORE_ASSETS = [
   './',
   './index.html',
