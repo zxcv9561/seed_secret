@@ -4047,37 +4047,24 @@ body.is-dragging-agent .agent-grid.is-empty:hover {
     white-space: nowrap !important;
   }
 
-  /* Hide STATUS and SECTOR columns on mobile */
-  .hierarchy-table .col-status-th,
-  .hierarchy-table .col-sector-th,
-  .hierarchy-table tbody tr:not(.row-folder) td:nth-child(3),
-  .hierarchy-table tbody tr:not(.row-folder) td:nth-child(4) {
-    display: none !important;
+  /* Single column - full width */
+  .hierarchy-table th,
+  .hierarchy-table td:first-child {
+    width: 100%;
+    max-width: 0;
   }
 
-  /* Adjust column widths: target=70%, class=30% */
-  .hierarchy-table .col-target-th { width: 70%; }
-  .hierarchy-table .col-class-th { width: 30%; }
-
-  /* Folder rows: span full width */
-  .hierarchy-table .row-folder td {
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-  }
-
-  /* Logs table: title=70%, date=30% */
-  .hierarchy-table tbody tr td:first-child {
-    max-width: 0; /* tricks browser into ellipsis */
-  }
-
-  /* Reduce font/padding on mobile */
+  /* Reduce font/padding on mobile - but allow inline padding-left to override for depth */
   .hierarchy-table th,
   .hierarchy-table td {
-    padding: 8px 6px !important;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+    padding-right: 6px !important;
+    /* padding-left allowed via inline style for hierarchy depth */
     font-size: 11px;
   }
   .hierarchy-table th {
+    padding-left: 6px !important;
     font-size: 9px;
     letter-spacing: 0.10em;
   }
@@ -4105,4 +4092,443 @@ body.is-dragging-agent .agent-grid.is-empty:hover {
   .sibling-bar {
     gap: 4px;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FOLDER ACTIONS - List view popover
+   ═══════════════════════════════════════════════════════════ */
+.folder-meta {
+  position: relative;
+}
+.folder-meta-text {
+  display: inline-block;
+}
+.folder-actions-btn {
+  background: transparent;
+  border: 1px solid var(--rule);
+  width: 26px; height: 24px;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--ink);
+  letter-spacing: 0;
+  margin-left: 8px;
+  vertical-align: middle;
+  line-height: 1;
+}
+.folder-actions-btn:hover {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+.folder-actions-popover {
+  position: absolute;
+  z-index: 200;
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+}
+.folder-actions-popover button {
+  background: transparent;
+  border: none;
+  padding: 9px 14px;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--ink);
+  border-bottom: 1px solid var(--rule);
+  transition: background 0.12s, color 0.12s;
+}
+.folder-actions-popover button:last-child {
+  border-bottom: none;
+}
+.folder-actions-popover button:hover {
+  background: var(--paper-2);
+}
+.folder-actions-popover button.danger {
+  color: var(--class-red);
+  font-weight: 700;
+}
+.folder-actions-popover button.danger:hover {
+  background: var(--class-red);
+  color: var(--paper);
+}
+
+@media (max-width: 768px) {
+  .folder-actions-btn {
+    width: 28px;
+    height: 26px;
+    margin-left: 4px;
+  }
+  .folder-actions-popover {
+    min-width: 180px;
+  }
+  .folder-actions-popover button {
+    padding: 11px 14px;
+    font-size: 13px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CUSTOM FIELDS UI (대상 보고서 / 작전 일지 양식)
+   ═══════════════════════════════════════════════════════════ */
+.custom-fields-area {
+  margin-top: 10px;
+}
+
+.cf-empty {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  padding: 8px 0;
+  font-style: italic;
+}
+
+/* Edit mode: grid of editable rows */
+.cf-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.cf-row {
+  display: grid;
+  grid-template-columns: 140px 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.cf-label-input {
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.cf-value-input {
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  padding: 6px 10px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--ink);
+  min-width: 0;
+}
+
+.cf-class-select {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.10em;
+}
+
+.cf-del-btn {
+  background: transparent;
+  border: 1px solid var(--rule);
+  width: 28px; height: 28px;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cf-del-btn:hover {
+  background: var(--class-red);
+  color: var(--paper);
+  border-color: var(--class-red);
+}
+
+.cf-add-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+  border-top: 1px dashed var(--rule);
+}
+
+.cf-add-btn {
+  background: var(--paper-2);
+  border: 1px dashed var(--ink-faint);
+  padding: 6px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  transition: background 0.15s, color 0.15s;
+}
+.cf-add-btn:hover {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+  border-style: solid;
+}
+
+/* Mobile: stack label and value vertically */
+@media (max-width: 768px) {
+  .cf-row {
+    grid-template-columns: 1fr 36px;
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      "label del"
+      "value value";
+    gap: 4px;
+  }
+  .cf-label-input {
+    grid-area: label;
+    font-size: 11px;
+  }
+  .cf-value-input {
+    grid-area: value;
+    font-size: 14px;
+  }
+  .cf-del-btn {
+    grid-area: del;
+    width: 32px; height: 32px;
+  }
+  .cf-add-btn {
+    font-size: 10px;
+    padding: 8px 12px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FOLDER ROW LAYOUT (single column, name + meta + action inline)
+   ═══════════════════════════════════════════════════════════ */
+.folder-row-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+.folder-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-row-side {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.folder-row-side .folder-meta-text {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+@media (max-width: 768px) {
+  .folder-row-side .folder-meta-text {
+    font-size: 9px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CUSTOM FIELDS AREA (보고서 자유 양식)
+   ═══════════════════════════════════════════════════════════ */
+.custom-fields-area {
+  margin-top: 6px;
+}
+.custom-fields-area.editing {
+  padding: 12px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 0;
+}
+.cf-empty {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+.cf-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.cf-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 32px;
+  gap: 8px;
+  align-items: stretch;
+}
+.cf-label-input {
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.cf-value-input {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  padding: 6px 10px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--ink);
+}
+.cf-class-select {
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+}
+.cf-del-btn {
+  background: transparent;
+  border: 1px solid var(--rule);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  color: var(--ink-muted);
+  font-size: 12px;
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.cf-del-btn:hover {
+  background: var(--class-red);
+  color: var(--paper);
+  border-color: var(--class-red);
+}
+.cf-add-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cf-add-btn {
+  background: var(--ink);
+  color: var(--paper);
+  border: none;
+  padding: 8px 14px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.cf-add-btn:hover {
+  background: var(--ink-soft);
+}
+
+@media (max-width: 768px) {
+  .cf-row {
+    grid-template-columns: 110px 1fr 28px;
+    gap: 6px;
+  }
+  .cf-label-input {
+    font-size: 10px;
+    padding: 6px 8px;
+  }
+  .cf-value-input {
+    font-size: 13px;
+    padding: 6px 8px;
+  }
+  .cf-add-btn {
+    font-size: 9px;
+    padding: 7px 10px;
+  }
+  .custom-fields-area.editing {
+    padding: 10px 8px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FOLDER LIST ROW — single column layout
+   ═══════════════════════════════════════════════════════════ */
+.folder-row-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.folder-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-row-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DEPTH-BASED HIGHLIGHT (계층 시각 구분)
+   ═══════════════════════════════════════════════════════════ */
+.hierarchy-table tbody tr td.hierarchy-cell {
+  border-left: 3px solid transparent;
+  transition: background 0.12s;
+}
+/* Folder/item at depth 1 — yellow accent */
+.hierarchy-table tbody tr.row-folder td.hierarchy-cell[style*="padding-left:36px"],
+.hierarchy-table tbody tr.row-folder td.hierarchy-cell[style*="padding-left: 36px"] {
+  border-left-color: var(--class-yellow);
+  background: rgba(218, 177, 39, 0.04);
+}
+/* Folder/item at depth 2 — gray accent */
+.hierarchy-table tbody tr.row-folder td.hierarchy-cell[style*="padding-left:60px"],
+.hierarchy-table tbody tr.row-folder td.hierarchy-cell[style*="padding-left: 60px"] {
+  border-left-color: var(--ink-faint);
+  background: rgba(0, 0, 0, 0.025);
+}
+/* Items inside depth 1+ folders */
+.hierarchy-table tbody tr:not(.row-folder) td.hierarchy-cell[style*="padding-left:36px"],
+.hierarchy-table tbody tr:not(.row-folder) td.hierarchy-cell[style*="padding-left: 36px"] {
+  border-left-color: var(--class-yellow);
+  border-left-style: dashed;
+  background: rgba(218, 177, 39, 0.02);
+}
+.hierarchy-table tbody tr:not(.row-folder) td.hierarchy-cell[style*="padding-left:60px"],
+.hierarchy-table tbody tr:not(.row-folder) td.hierarchy-cell[style*="padding-left: 60px"] {
+  border-left-color: var(--ink-faint);
+  border-left-style: dashed;
+}
+
+/* On mobile: stronger background tint to compensate for less indent visibility */
+@media (max-width: 768px) {
+  .hierarchy-table tbody tr.row-folder td.hierarchy-cell[style*="padding-left:36px"],
+  .hierarchy-table tbody tr.row-folder td.hierarchy-cell[style*="padding-left: 36px"] {
+    background: rgba(218, 177, 39, 0.10);
+  }
+  .hierarchy-table tbody tr.row-folder td.hierarchy-cell[style*="padding-left:60px"],
+  .hierarchy-table tbody tr.row-folder td.hierarchy-cell[style*="padding-left: 60px"] {
+    background: rgba(0, 0, 0, 0.06);
+  }
+  .hierarchy-table tbody tr:not(.row-folder) td.hierarchy-cell[style*="padding-left:36px"],
+  .hierarchy-table tbody tr:not(.row-folder) td.hierarchy-cell[style*="padding-left: 36px"] {
+    background: rgba(218, 177, 39, 0.05);
+  }
+  /* Reduce indent step on mobile (24 → 18px effective: kept 24 but less padding-left base) */
+  /* Keep the inline padding-left as-is, just rely on color differentiation */
 }

@@ -202,7 +202,9 @@ function caseToRow(x, order) {
     editor_ids: x.editorIds || [],
     parent_id: x.parentId || null,
     depth: x.depth || 0,
-    is_folder: !!x.isFolder
+    is_folder: !!x.isFolder,
+    custom_fields: x.customFields || [],
+    hidden_fields: x.hiddenFields || []
   };
 }
 function caseFromRow(r) {
@@ -215,7 +217,9 @@ function caseFromRow(r) {
     editorIds: r.editor_ids || [],
     parentId: r.parent_id || null,
     depth: r.depth || 0,
-    isFolder: !!r.is_folder
+    isFolder: !!r.is_folder,
+    customFields: r.custom_fields || [],
+    hiddenFields: r.hidden_fields || []
   };
 }
 
@@ -228,7 +232,9 @@ function logToRow(x, order) {
     attachments: x.attachments || [],
     parent_id: x.parentId || null,
     depth: x.depth || 0,
-    is_folder: !!x.isFolder
+    is_folder: !!x.isFolder,
+    custom_fields: x.customFields || [],
+    hidden_fields: x.hiddenFields || []
   };
 }
 function logFromRow(r) {
@@ -240,7 +246,9 @@ function logFromRow(r) {
     attachments: r.attachments || [],
     parentId: r.parent_id || null,
     depth: r.depth || 0,
-    isFolder: !!r.is_folder
+    isFolder: !!r.is_folder,
+    customFields: r.custom_fields || [],
+    hiddenFields: r.hidden_fields || []
   };
 }
 
@@ -1072,6 +1080,223 @@ async function renderStorageWidget(container) {
 }
 
 /* ── ID / UTIL ────────────────────────────── */
+/* ═══════════════════════════════════════════
+   CUSTOM FIELDS SYSTEM (대상 보고서 / 작전 일지)
+   - 보고서별로 자유롭게 필드 추가/수정/삭제 가능
+   - 기존 고정 필드(case_no, class_level, status, sector, observer)는
+     처음 진입 시 customFields로 마이그레이션
+   ═══════════════════════════════════════════ */
+
+function genFieldId() {
+  return 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function ensureDossierFieldsMigrated(d) {
+  if (d.isFolder) return;
+  if (d.customFields && d.customFields.length > 0) return;
+  if (d._migrated) return;
+  d._migrated = true;
+
+  // Build initial customFields from legacy fields
+  var fields = [];
+  if (d.caseNo)      fields.push({ id: genFieldId(), label: 'CASE-NO', value: d.caseNo });
+  if (d.classLevel)  fields.push({ id: genFieldId(), label: 'CLASS', value: d.classLevel, type: 'class' });
+  if (d.status)      fields.push({ id: genFieldId(), label: 'STATUS', value: d.status });
+  if (d.sector)      fields.push({ id: genFieldId(), label: 'SECTOR', value: d.sector });
+  if (d.observer)    fields.push({ id: genFieldId(), label: 'OBSERVER', value: d.observer });
+
+  if (fields.length > 0) {
+    d.customFields = fields;
+    saveEntity('dossier', d.id);
+  } else {
+    // Empty - give a sensible default
+    d.customFields = [
+      { id: genFieldId(), label: 'STATUS', value: '' }
+    ];
+  }
+}
+
+function ensureLogFieldsMigrated(l) {
+  if (l.isFolder) return;
+  if (l.customFields && l.customFields.length > 0) return;
+  if (l._migrated) return;
+  l._migrated = true;
+
+  var fields = [];
+  if (l.date) fields.push({ id: genFieldId(), label: 'DATE', value: l.date });
+
+  if (fields.length > 0) {
+    l.customFields = fields;
+    saveEntity('log', l.id);
+  } else {
+    l.customFields = [
+      { id: genFieldId(), label: 'DATE', value: todayStr() }
+    ];
+  }
+}
+
+/* Render custom fields area (edit or read mode) */
+function renderCustomFieldsArea(item, type, editable) {
+  var container = document.createElement('div');
+  container.className = 'custom-fields-area' + (editable ? ' editing' : '');
+
+  // Auto-migrate legacy fields to customFields if not yet migrated
+  // This happens once per item — when customFields is empty AND legacy fields have values
+  var migrated = false;
+  if (!item.customFields || item.customFields.length === 0) {
+    if (!item.customFields) item.customFields = [];
+    if (type === 'dossier') {
+      // Add legacy fields if they have values OR this is a fresh item
+      var hasAnyLegacy = item.caseNo || item.classLevel || item.status || item.sector || item.observer;
+      if (hasAnyLegacy || !item.target || item.target === '심화 보고서 제목') {
+        if (item.caseNo) {
+          item.customFields.push({ id: genFieldId(), label: 'CASE-NO', value: item.caseNo });
+        }
+        if (item.classLevel) {
+          item.customFields.push({ id: genFieldId(), label: 'CLASS', value: item.classLevel, type: 'class' });
+        }
+        if (item.status) {
+          item.customFields.push({ id: genFieldId(), label: 'STATUS', value: item.status });
+        }
+        if (item.sector) {
+          item.customFields.push({ id: genFieldId(), label: 'SECTOR', value: item.sector });
+        }
+        if (item.observer) {
+          item.customFields.push({ id: genFieldId(), label: 'OBSERVER', value: item.observer });
+        }
+        if (item.customFields.length > 0) migrated = true;
+      }
+    } else if (type === 'log') {
+      if (item.date) {
+        item.customFields.push({ id: genFieldId(), label: 'DATE', value: item.date });
+        migrated = true;
+      }
+    }
+    if (migrated) {
+      // Save migrated state (don't render again — caller already handles that)
+      saveEntity(type, item.id);
+    }
+  }
+
+  var fields = item.customFields || [];
+
+  if (!editable) {
+    // Read mode: just show field rows
+    if (fields.length === 0) {
+      container.innerHTML = '<div class="cf-empty">메타 정보 없음</div>';
+      return container;
+    }
+    var readWrap = document.createElement('div');
+    readWrap.className = 'detail-meta';
+    fields.forEach(function(f) {
+      var displayValue = f.value;
+      if (f.type === 'class') displayValue = classLabel(f.value);
+      var span = document.createElement('span');
+      span.innerHTML = esc(f.label) + ' · <b>' + esc(displayValue) + '</b>';
+      readWrap.appendChild(span);
+    });
+    container.appendChild(readWrap);
+    return container;
+  }
+
+  // Edit mode: render each field with edit/delete + add new
+  var grid = document.createElement('div');
+  grid.className = 'cf-grid';
+
+  fields.forEach(function(f, idx) {
+    grid.appendChild(buildFieldEditRow(item, type, f, idx));
+  });
+
+  container.appendChild(grid);
+
+  // Add field buttons
+  var addBar = document.createElement('div');
+  addBar.className = 'cf-add-bar';
+  addBar.innerHTML =
+    '<button class="cf-add-btn" id="cf-add-text">+ 항목 추가</button>' +
+    '<button class="cf-add-btn" id="cf-add-class">+ CLASS 등급 추가</button>';
+  container.appendChild(addBar);
+
+  addBar.querySelector('#cf-add-text').onclick = function() {
+    showPrompt('새 항목', '항목 라벨 (예: 코드명, 위협등급, 발견일자)').then(function(label) {
+      if (!label) return;
+      if (!item.customFields) item.customFields = [];
+      item.customFields.push({ id: genFieldId(), label: label.toUpperCase(), value: '' });
+      saveEntity(type, item.id);
+      // Re-render entire detail
+      render();
+    });
+  };
+  addBar.querySelector('#cf-add-class').onclick = function() {
+    if (!item.customFields) item.customFields = [];
+    item.customFields.push({ id: genFieldId(), label: 'CLASS', value: '1', type: 'class' });
+    saveEntity(type, item.id);
+    render();
+  };
+
+  return container;
+}
+
+function buildFieldEditRow(item, type, f, idx) {
+  var row = document.createElement('div');
+  row.className = 'cf-row';
+
+  var labelInput = document.createElement('input');
+  labelInput.className = 'cf-label-input';
+  labelInput.type = 'text';
+  labelInput.value = f.label || '';
+  labelInput.placeholder = '항목 이름';
+
+  var valueInput;
+  if (f.type === 'class') {
+    valueInput = document.createElement('select');
+    valueInput.className = 'cf-value-input cf-class-select';
+    ['1','2','3','4'].forEach(function(lv) {
+      var o = document.createElement('option');
+      o.value = lv;
+      o.textContent = classLabel(lv);
+      if (f.value === lv) o.selected = true;
+      valueInput.appendChild(o);
+    });
+  } else {
+    valueInput = document.createElement('input');
+    valueInput.className = 'cf-value-input';
+    valueInput.type = 'text';
+    valueInput.value = f.value || '';
+    valueInput.placeholder = '값';
+  }
+
+  var delBtn = document.createElement('button');
+  delBtn.className = 'cf-del-btn';
+  delBtn.title = '항목 삭제';
+  delBtn.textContent = '✕';
+
+  row.appendChild(labelInput);
+  row.appendChild(valueInput);
+  row.appendChild(delBtn);
+
+  var save = function() {
+    f.label = labelInput.value.trim() || '항목';
+    f.value = valueInput.value;
+    saveEntity(type, item.id);
+  };
+
+  labelInput.addEventListener('blur', save);
+  valueInput.addEventListener('change', save);
+  if (valueInput.tagName === 'INPUT') valueInput.addEventListener('blur', save);
+
+  delBtn.onclick = function() {
+    showConfirm('항목 삭제', '「' + (f.label || '항목') + '」을 삭제하시겠습니까?', '삭제').then(function(v) {
+      if (!v) return;
+      item.customFields = (item.customFields || []).filter(function(x) { return x.id !== f.id; });
+      saveEntity(type, item.id);
+      render();
+    });
+  };
+
+  return row;
+}
+
 function genId(prefix) { return (prefix||'id') + '-' + Date.now() + '-' + Math.floor(Math.random()*10000); }
 
 function esc(s) {
@@ -2161,35 +2386,11 @@ function bindMetaFields(container, target, entityInfo) {
    ═══════════════════════════════════════════ */
 function renderDossierList(view) {
   view.appendChild(sectionHeader('대상 보고서', 'Active Dossier · Deep Report',
-    canCreate('dossier') ? '+ 보고서 추가' : null,
+    canCreate('dossier') ? '+ 문서 목록' : null,
     function() {
-      // Open new-item modal with type choice
-      openNewDossierModal(null);
+      // Open menu to choose: add report / add folder
+      openDossierAddMenu();
     }));
-
-  // "+ 폴더 추가" extra button on right (for master)
-  if (canCreate('dossier') && isMaster()) {
-    var extraBar = document.createElement('div');
-    extraBar.style.cssText = 'margin: 4px 0 12px 0; display: flex; gap: 6px; flex-wrap: wrap;';
-    extraBar.innerHTML = '<button class="btn-sm" id="add-dossier-folder">+ 폴더 추가</button>';
-    extraBar.querySelector('#add-dossier-folder').onclick = function() {
-      showPrompt('폴더 추가', '폴더 이름을 입력하세요 (예: 관리개체, 요주의 조직, 사건사고)').then(function(v) {
-        if (!v) return;
-        var f = {
-          id: genId('dossier'), caseNo: '', target: v, classLevel: '1',
-          sector: '', status: '', observer: '', blocks: [],
-          visibility: 'public',
-          ownerId: currentUser ? currentUser.agentId : null,
-          editorIds: [],
-          parentId: null, depth: 0, isFolder: true
-        };
-        state.dossier.push(f);
-        saveEntity('dossier', f.id);
-        render();
-      });
-    };
-    view.appendChild(extraBar);
-  }
 
   appendSearchInput(view);
 
@@ -2211,6 +2412,269 @@ function renderDossierList(view) {
 
   // Build tree
   renderHierarchicalListTable(view, visible, 'dossier');
+}
+
+function openFolderActionsMenu(type, folder, anchorEl) {
+  // Popover menu near anchor
+  var existing = document.querySelector('.folder-actions-popover');
+  if (existing) { existing.remove(); return; }
+
+  var pop = document.createElement('div');
+  pop.className = 'folder-actions-popover';
+  var label = type === 'dossier' ? '보고서' : '일지';
+  pop.innerHTML =
+    '<button data-act="open">📂 폴더 열기</button>' +
+    '<button data-act="add-item">+ ' + label + ' 추가 (이 폴더에)</button>' +
+    '<button data-act="add-sub">+ 하위 폴더</button>' +
+    '<button data-act="rename">이름 변경</button>' +
+    '<button data-act="move">⇄ 위치 변경</button>' +
+    '<button data-act="del" class="danger">● 폴더 삭제</button>';
+
+  document.body.appendChild(pop);
+
+  // Position near anchor
+  var rect = anchorEl.getBoundingClientRect();
+  var popW = 200;
+  var left = rect.right - popW;
+  if (left < 8) left = 8;
+  pop.style.left = left + 'px';
+  pop.style.top = (rect.bottom + 4 + window.scrollY) + 'px';
+
+  var close = function() { pop.remove(); document.removeEventListener('click', outsideClick); };
+  var outsideClick = function(e) {
+    if (!pop.contains(e.target) && e.target !== anchorEl) close();
+  };
+  setTimeout(function() {
+    document.addEventListener('click', outsideClick);
+  }, 0);
+
+  pop.querySelectorAll('button').forEach(function(b) {
+    b.onclick = function(e) {
+      e.stopPropagation();
+      var act = b.getAttribute('data-act');
+      close();
+      handleFolderAction(type, folder, act);
+    };
+  });
+}
+
+function handleFolderAction(type, folder, act) {
+  var arr = type === 'dossier' ? state.dossier : state.logs;
+  var nameField = type === 'dossier' ? 'target' : 'title';
+
+  if (act === 'open') {
+    openDetail(type, folder.id);
+  } else if (act === 'add-item') {
+    if (type === 'dossier') {
+      openNewDossierModal(folder.id);
+    } else {
+      var newL = {
+        id: genId('log'), title: '새 작전 일지', date: todayStr(), blocks: [],
+        visibility: 'public',
+        ownerId: currentUser ? currentUser.agentId : null,
+        editorIds: [], attachments: [],
+        parentId: folder.id, depth: (folder.depth || 0) + 1, isFolder: false
+      };
+      state.logs.push(newL);
+      saveEntity('log', newL.id);
+      openDetail('log', newL.id);
+    }
+  } else if (act === 'add-sub') {
+    if ((folder.depth || 0) >= 1) {
+      alert('최대 3단계까지만 가능합니다');
+      return;
+    }
+    showPrompt('하위 폴더 추가', '하위 폴더 이름').then(function(v) {
+      if (!v) return;
+      var sub;
+      if (type === 'dossier') {
+        sub = {
+          id: genId('dossier'), caseNo: '', target: v, classLevel: '1',
+          sector: '', status: '', observer: '', blocks: [],
+          visibility: 'public',
+          ownerId: currentUser ? currentUser.agentId : null,
+          editorIds: [],
+          parentId: folder.id, depth: (folder.depth || 0) + 1, isFolder: true
+        };
+      } else {
+        sub = {
+          id: genId('log'), title: v, date: '', blocks: [],
+          visibility: 'public',
+          ownerId: currentUser ? currentUser.agentId : null,
+          editorIds: [], attachments: [],
+          parentId: folder.id, depth: (folder.depth || 0) + 1, isFolder: true
+        };
+      }
+      arr.push(sub);
+      saveEntity(type, sub.id);
+      render();
+    });
+  } else if (act === 'rename') {
+    showPrompt('폴더 이름 변경', '새 이름', folder[nameField]).then(function(v) {
+      if (!v) return;
+      folder[nameField] = v;
+      saveEntity(type, folder.id);
+      render();
+    });
+  } else if (act === 'move') {
+    if (type === 'dossier') openDossierParentChange(folder);
+    else openLogParentChange(folder);
+  } else if (act === 'del') {
+    var childCount = arr.filter(function(x) { return x.parentId === folder.id; }).length;
+    var msg = '「' + folder[nameField] + '」 폴더를 삭제합니다.';
+    if (childCount > 0) msg += '\n\n⚠ 하위 ' + childCount + '개 항목도 함께 삭제됩니다.';
+    showConfirm('폴더 삭제', msg, '삭제').then(function(v) {
+      if (!v) return;
+      var toDelete = [folder.id];
+      function collectDesc(parentId) {
+        arr.forEach(function(x) {
+          if (x.parentId === parentId && toDelete.indexOf(x.id) < 0) {
+            toDelete.push(x.id);
+            collectDesc(x.id);
+          }
+        });
+      }
+      collectDesc(folder.id);
+      var urls = [];
+      toDelete.forEach(function(fid) {
+        var item = findById(arr, fid);
+        if (item) urls = urls.concat(collectBlockUrls(item.blocks));
+      });
+      deleteStorageFiles(urls);
+      // Remove from state
+      if (type === 'dossier') {
+        state.dossier = state.dossier.filter(function(x) { return toDelete.indexOf(x.id) < 0; });
+      } else {
+        state.logs = state.logs.filter(function(x) { return toDelete.indexOf(x.id) < 0; });
+      }
+      // Delete from DB
+      var tableName = type === 'dossier' ? 'dossier' : 'logs';
+      toDelete.forEach(function(fid) {
+        sb.from(tableName).delete().eq('id', fid).then(function(){});
+      });
+      render();
+    });
+  }
+}
+
+function openDossierAddMenu(parentId) {
+  // Modal with options: add report, add folder
+  var backdrop = document.createElement('div');
+  backdrop.className = 'confirm-backdrop open';
+  backdrop.style.zIndex = '320';
+  var box = document.createElement('div');
+  box.className = 'confirm-box';
+  box.style.maxWidth = '380px';
+  box.style.width = '90vw';
+  var parentLabel = parentId ? '「' + esc((findById(state.dossier, parentId) || {}).target || '') + '」 안에' : '최상위에';
+  box.innerHTML =
+    '<div class="confirm-title">+ 문서 목록</div>' +
+    '<div class="confirm-msg">' + parentLabel + ' 무엇을 추가하시겠습니까?</div>' +
+    '<div style="display:flex; flex-direction:column; gap:8px; margin: 14px 0;">' +
+      '<button class="btn-primary" id="add-report-btn" style="text-align:left;">📄 보고서 추가</button>' +
+      '<button class="btn-sm" id="add-folder-btn" style="text-align:left;">▤ 폴더 추가</button>' +
+    '</div>' +
+    '<div class="confirm-actions">' +
+      '<button class="btn-ghost" id="cancel-btn">취소</button>' +
+    '</div>';
+  backdrop.appendChild(box);
+  document.body.appendChild(backdrop);
+  box.querySelector('#cancel-btn').onclick = function() { backdrop.remove(); };
+  backdrop.onclick = function(e) { if (e.target === backdrop) backdrop.remove(); };
+  box.querySelector('#add-report-btn').onclick = function() {
+    backdrop.remove();
+    openNewDossierModal(parentId);
+  };
+  box.querySelector('#add-folder-btn').onclick = function() {
+    backdrop.remove();
+    showPrompt('폴더 추가', '폴더 이름을 입력하세요 (예: 관리개체, 요주의 조직, 사건사고)').then(function(v) {
+      if (!v) return;
+      var depth = 0;
+      if (parentId) {
+        var p = findById(state.dossier, parentId);
+        if (p) depth = (p.depth || 0) + 1;
+      }
+      if (depth >= 2) { alert('최대 3단계까지만 가능합니다'); return; }
+      var f = {
+        id: genId('dossier'), caseNo: '', target: v, classLevel: '1',
+        sector: '', status: '', observer: '', blocks: [],
+        visibility: 'public',
+        ownerId: currentUser ? currentUser.agentId : null,
+        editorIds: [],
+        parentId: parentId || null, depth: depth, isFolder: true
+      };
+      state.dossier.push(f);
+      saveEntity('dossier', f.id);
+      render();
+    });
+  };
+}
+
+function openLogAddMenu(parentId) {
+  var backdrop = document.createElement('div');
+  backdrop.className = 'confirm-backdrop open';
+  backdrop.style.zIndex = '320';
+  var box = document.createElement('div');
+  box.className = 'confirm-box';
+  box.style.maxWidth = '380px';
+  box.style.width = '90vw';
+  var parentLabel = parentId ? '「' + esc((findById(state.logs, parentId) || {}).title || '') + '」 안에' : '최상위에';
+  box.innerHTML =
+    '<div class="confirm-title">+ 문서 목록</div>' +
+    '<div class="confirm-msg">' + parentLabel + ' 무엇을 추가하시겠습니까?</div>' +
+    '<div style="display:flex; flex-direction:column; gap:8px; margin: 14px 0;">' +
+      '<button class="btn-primary" id="add-log-btn" style="text-align:left;">📄 일지 추가</button>' +
+      '<button class="btn-sm" id="add-folder-btn" style="text-align:left;">▤ 폴더 추가</button>' +
+    '</div>' +
+    '<div class="confirm-actions">' +
+      '<button class="btn-ghost" id="cancel-btn">취소</button>' +
+    '</div>';
+  backdrop.appendChild(box);
+  document.body.appendChild(backdrop);
+  box.querySelector('#cancel-btn').onclick = function() { backdrop.remove(); };
+  backdrop.onclick = function(e) { if (e.target === backdrop) backdrop.remove(); };
+  box.querySelector('#add-log-btn').onclick = function() {
+    backdrop.remove();
+    var depth = 0;
+    if (parentId) {
+      var p = findById(state.logs, parentId);
+      if (p) depth = (p.depth || 0) + 1;
+    }
+    var l = {
+      id: genId('log'), title: '새 작전 일지', date: todayStr(), blocks: [],
+      visibility: 'public',
+      ownerId: currentUser ? currentUser.agentId : null,
+      editorIds: [],
+      attachments: [],
+      parentId: parentId || null, depth: depth, isFolder: false
+    };
+    state.logs.push(l);
+    saveEntity('log', l.id);
+    openDetail('log', l.id);
+  };
+  box.querySelector('#add-folder-btn').onclick = function() {
+    backdrop.remove();
+    showPrompt('폴더 추가', '폴더 이름을 입력하세요').then(function(v) {
+      if (!v) return;
+      var depth = 0;
+      if (parentId) {
+        var p = findById(state.logs, parentId);
+        if (p) depth = (p.depth || 0) + 1;
+      }
+      if (depth >= 2) { alert('최대 3단계까지만 가능합니다'); return; }
+      var f = {
+        id: genId('log'), title: v, date: '', blocks: [],
+        visibility: 'public',
+        ownerId: currentUser ? currentUser.agentId : null,
+        editorIds: [],
+        attachments: [],
+        parentId: parentId || null, depth: depth, isFolder: true
+      };
+      state.logs.push(f);
+      saveEntity('log', f.id);
+      render();
+    });
+  };
 }
 
 function openNewDossierModal(parentId) {
@@ -2266,16 +2730,12 @@ function renderHierarchicalListTable(view, items, type) {
     table.innerHTML =
       '<thead><tr>' +
         '<th class="col-target-th">대상 / TARGET</th>' +
-        '<th class="col-class-th">CLASS</th>' +
-        '<th class="col-status-th">STATUS</th>' +
-        '<th class="col-sector-th">SECTOR</th>' +
       '</tr></thead><tbody></tbody>';
   } else {
     // logs
     table.innerHTML =
       '<thead><tr>' +
         '<th>일지 / TITLE</th>' +
-        '<th class="col-date-th">DATE</th>' +
       '</tr></thead><tbody></tbody>';
   }
   var tbody = table.querySelector('tbody');
@@ -2285,42 +2745,52 @@ function renderHierarchicalListTable(view, items, type) {
     var fav = isFavorited(type, item.id) ? ' <span style="color:var(--class-yellow)">★</span>' : '';
     var hasChildren = item.children && item.children.length > 0;
     var isExpanded = expanded[item.id] !== false; // default expanded
-    var indent = depth * 20;
+    var indent = depth * 24;
 
     if (item.isFolder) {
       tr.classList.add('row-folder');
       var arrow = hasChildren ? (isExpanded ? '▼' : '▶') : '◌';
       var foldername = '<span class="folder-arrow">' + arrow + '</span><span class="folder-icon">▤</span> <b>' + esc(item.target || item.title) + '</b>';
-      if (type === 'dossier') {
-        // Folder row in dossier - colspan everything after
-        tr.innerHTML =
-          '<td class="col-target hierarchy-cell" style="padding-left:' + (12 + indent) + 'px;">' + foldername + fav + '</td>' +
-          '<td colspan="3" class="col-mono folder-meta">' + (hasChildren ? item.children.length + '개 항목' : '비어있음') + '</td>';
-      } else {
-        tr.innerHTML =
-          '<td class="hierarchy-cell" style="padding-left:' + (12 + indent) + 'px;">' + foldername + fav + '</td>' +
-          '<td class="col-mono folder-meta">' + (hasChildren ? item.children.length + '개 항목' : '비어있음') + '</td>';
-      }
+      // Action button — only for masters/owners
+      var actionBtn = isMaster() ? '<button class="folder-actions-btn" title="폴더 작업">⋯</button>' : '';
+      var metaText = hasChildren ? item.children.length + '개 항목' : '비어있음';
+      var folderInfoHtml =
+        '<div class="folder-row-inner">' +
+          '<div class="folder-row-name">' + foldername + fav + '</div>' +
+          '<div class="folder-row-side">' +
+            '<span class="folder-meta-text">' + metaText + '</span>' +
+            actionBtn +
+          '</div>' +
+        '</div>';
+      tr.innerHTML =
+        '<td class="hierarchy-cell" style="padding-left:' + (12 + indent) + 'px !important;">' +
+          folderInfoHtml +
+        '</td>';
+      // Toggle expand on row click (but not on action button)
       tr.onclick = function(e) {
-        // Toggle expand
+        if (e.target.closest('.folder-actions-btn')) return;
         expanded[item.id] = !isExpanded;
         saveExpanded();
         render();
       };
+      // Wire action menu button
+      var actBtn = tr.querySelector('.folder-actions-btn');
+      if (actBtn) {
+        actBtn.onclick = function(e) {
+          e.stopPropagation();
+          openFolderActionsMenu(type, item, e.currentTarget);
+        };
+      }
     } else {
-      // Regular item
+      // Regular item — list shows only title (custom fields are detail-only)
       if (type === 'dossier') {
         var indentMark = depth > 0 ? '<span class="depth-indent">└</span>' : '';
         tr.innerHTML =
-          '<td class="col-target hierarchy-cell" style="padding-left:' + (12 + indent) + 'px;">' + indentMark + esc(item.target) + fav + ' ' + visibilityBadge(item, 'dossier') + '</td>' +
-          '<td class="col-status"><span class="cls-pip c-' + esc(item.classLevel) + '">●</span>' + esc(classLabel(item.classLevel)) + '</td>' +
-          '<td class="col-mono">[' + esc(item.status) + ']</td>' +
-          '<td class="col-mono">' + esc(item.sector) + '</td>';
+          '<td class="col-target hierarchy-cell" style="padding-left:' + (12 + indent) + 'px !important;">' + indentMark + esc(item.target) + fav + ' ' + visibilityBadge(item, 'dossier') + '</td>';
       } else {
         var indentMark2 = depth > 0 ? '<span class="depth-indent">└</span>' : '';
         tr.innerHTML =
-          '<td class="hierarchy-cell" style="padding-left:' + (12 + indent) + 'px;">' + indentMark2 + esc(item.title) + fav + ' ' + visibilityBadge(item, 'log') + '</td>' +
-          '<td class="col-mono">' + esc(item.date) + '</td>';
+          '<td class="hierarchy-cell" style="padding-left:' + (12 + indent) + 'px !important;">' + indentMark2 + esc(item.title) + fav + ' ' + visibilityBadge(item, 'log') + '</td>';
       }
       tr.onclick = function() { openDetail(type, item.id); };
     }
@@ -2484,6 +2954,9 @@ function renderDossierDetail(view, id) {
   if (!d) { backToList(); return; }
   if (!canView(d, 'dossier')) { backToList(); return; }
 
+  // Migrate legacy fields → customFields on first edit (lazy migration)
+  ensureDossierFieldsMigrated(d);
+
   view.appendChild(backButton());
 
   // Sibling/parent/children navigation
@@ -2604,16 +3077,10 @@ function renderDossierDetail(view, id) {
         (canModify ? '<button class="btn-danger" id="del-btn">● 삭제</button>' : '') +
       '</div>' +
     '</div>' +
-    '<div class="detail-meta-edit">' +
-      (editable
-        ? metaFieldHTML('CASE-NO', 'caseNo', d.caseNo, 'input') +
-          metaFieldHTML('CLASS', 'classLevel', d.classLevel, 'select') +
-          metaFieldHTML('STATUS', 'status', d.status, 'input') +
-          metaFieldHTML('SECTOR', 'sector', d.sector, 'input') +
-          metaFieldHTML('OBSERVER', 'observer', d.observer, 'input')
-        : '<div class="detail-meta"><span>CASE-NO · <b>' + esc(d.caseNo) + '</b></span><span>CLASS · <b>' + esc(classLabel(d.classLevel)) + '</b></span><span>STATUS · <b>[' + esc(d.status) + ']</b></span><span>SECTOR · <b>' + esc(d.sector) + '</b></span><span>OBSERVER · <b>' + esc(d.observer) + '</b></span></div>'
-      ) +
-    '</div>';
+    '<div class="detail-meta-edit" id="meta-edit-area"></div>';
+
+  // Render custom fields meta area
+  hdr.querySelector('#meta-edit-area').appendChild(renderCustomFieldsArea(d, 'dossier', editable));
 
   var titleEl = hdr.querySelector('.detail-title');
   if (editable) {
@@ -2627,9 +3094,7 @@ function renderDossierDetail(view, id) {
     titleEl.addEventListener('input', _saveT);
     titleEl.addEventListener('blur', _saveT);
   }
-  if (editable) {
-    bindMetaFields(hdr, d, { type: 'dossier', id: d.id });
-  }
+  // bindMetaFields no longer needed — custom fields handle their own bindings
   if (canModify) {
     bindEditToggleButtons(hdr, function() {
     if (titleEl && editable) {
@@ -7759,43 +8224,10 @@ function formatDate(iso) {
    ═══════════════════════════════════════════ */
 function renderLogsList(view) {
   view.appendChild(sectionHeader('작전 일지', 'Operation Logs',
-    canCreate('log') ? '+ 일지 추가' : null,
+    canCreate('log') ? '+ 문서 목록' : null,
     function() {
-      var l = {
-        id: genId('log'), title: '새 작전 일지', date: todayStr(), blocks: [],
-        visibility: 'public',
-        ownerId: currentUser ? currentUser.agentId : null,
-        editorIds: [],
-        parentId: null, depth: 0, isFolder: false
-      };
-      state.logs.push(l);
-      saveEntity('log', l.id);
-      openDetail('log', l.id);
+      openLogAddMenu();
     }));
-
-  // "+ 폴더 추가" extra button on right (for master)
-  if (canCreate('log') && isMaster()) {
-    var extraBar = document.createElement('div');
-    extraBar.style.cssText = 'margin: 4px 0 12px 0; display: flex; gap: 6px; flex-wrap: wrap;';
-    extraBar.innerHTML = '<button class="btn-sm" id="add-log-folder">+ 폴더 추가</button>';
-    extraBar.querySelector('#add-log-folder').onclick = function() {
-      showPrompt('폴더 추가', '폴더 이름을 입력하세요 (예: 시즌 1, 시즌 2)').then(function(v) {
-        if (!v) return;
-        var f = {
-          id: genId('log'), title: v, date: '', blocks: [],
-          visibility: 'public',
-          ownerId: currentUser ? currentUser.agentId : null,
-          editorIds: [],
-          attachments: [],
-          parentId: null, depth: 0, isFolder: true
-        };
-        state.logs.push(f);
-        saveEntity('log', f.id);
-        render();
-      });
-    };
-    view.appendChild(extraBar);
-  }
 
   appendSearchInput(view);
 
@@ -7820,6 +8252,9 @@ function renderLogDetail(view, id) {
   var l = findById(state.logs, id);
   if (!l) { backToList(); return; }
   if (!canView(l, 'log')) { backToList(); return; }
+
+  // Migrate legacy fields → customFields on first entry
+  ensureLogFieldsMigrated(l);
 
   view.appendChild(backButton());
 
@@ -7948,10 +8383,9 @@ function renderLogDetail(view, id) {
         (canModify ? '<button class="btn-danger" id="del-btn">● 삭제</button>' : '') +
       '</div>' +
     '</div>' +
-    '<div class="detail-meta-edit">' +
-      (editable ? metaFieldHTML('DATE', 'date', l.date || todayStr(), 'input') :
-        '<div class="meta-field"><div class="mf-label">DATE</div><input type="text" value="' + esc(l.date || '') + '" disabled></div>') +
-    '</div>';
+    '<div class="detail-meta-edit" id="log-meta-edit-area"></div>';
+
+  hdr.querySelector('#log-meta-edit-area').appendChild(renderCustomFieldsArea(l, 'log', editable));
 
   var titleEl = hdr.querySelector('.detail-title');
   if (editable) {
@@ -7965,9 +8399,7 @@ function renderLogDetail(view, id) {
     titleEl.addEventListener('input', _saveT);
     titleEl.addEventListener('blur', _saveT);
   }
-  if (editable) {
-    bindMetaFields(hdr, l, { type: 'log', id: l.id });
-  }
+  // bindMetaFields no longer needed — custom fields handle their own bindings
   if (canModify) {
     bindEditToggleButtons(hdr, function() {
     if (titleEl && editable) {
