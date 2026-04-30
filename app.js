@@ -2414,6 +2414,146 @@ function renderDossierList(view) {
   renderHierarchicalListTable(view, visible, 'dossier');
 }
 
+function openGroupActionsMenu(g, depth, anchorEl) {
+  // Close existing
+  var existing = document.querySelector('.folder-actions-popover');
+  if (existing) { existing.remove(); return; }
+
+  var pop = document.createElement('div');
+  pop.className = 'folder-actions-popover';
+  var addSubBtn = depth < 2 ? '<button data-act="addsub">+ 하위 소속</button>' : '';
+  pop.innerHTML =
+    '<button data-act="add">+ 요원 추가</button>' +
+    addSubBtn +
+    '<button data-act="rename">이름 변경</button>' +
+    '<button data-act="move">⇄ 위치 변경</button>' +
+    '<button data-act="del" class="danger">● 소속 삭제</button>';
+
+  document.body.appendChild(pop);
+
+  // Position
+  var rect = anchorEl.getBoundingClientRect();
+  var popW = 200;
+  var left = rect.right - popW;
+  if (left < 8) left = 8;
+  pop.style.left = left + 'px';
+  pop.style.top = (rect.bottom + 4 + window.scrollY) + 'px';
+
+  var close = function() { pop.remove(); document.removeEventListener('click', outsideClick); };
+  var outsideClick = function(e) {
+    if (!pop.contains(e.target) && e.target !== anchorEl) close();
+  };
+  setTimeout(function() {
+    document.addEventListener('click', outsideClick);
+  }, 0);
+
+  pop.querySelectorAll('button').forEach(function(b) {
+    b.onclick = function(e) {
+      e.stopPropagation();
+      var act = b.getAttribute('data-act');
+      close();
+      handleGroupAction(g, depth, act);
+    };
+  });
+}
+
+function handleGroupAction(g, depth, act) {
+  if (act === 'add') {
+    if (!isMaster()) { alert('master 권한이 필요합니다'); return; }
+    var a = {
+      id: genId('agent'),
+      name: '████ ████',
+      idNo: '000-0000',
+      rank: '요원',
+      unit: g.name,
+      talent: '일반',
+      photo: '',
+      account: null,
+      role: 'member',
+      visibility: 'public',
+      ownerId: currentUser ? currentUser.agentId : null,
+      editorIds: [],
+      blocks: []
+    };
+    var realGroup = findById(state.agentGroups, g.id);
+    if (realGroup) realGroup.agents.push(a);
+    saveEntity('agent', a.id);
+    openDetail('agent', a.id);
+  } else if (act === 'addsub') {
+    if (!isMaster()) return;
+    showPrompt('하위 소속 생성', '「' + g.name + '」 아래에 생성할 소속 이름을 입력하세요').then(function(v) {
+      if (!v) return;
+      var sub = {
+        id: genId('group'),
+        name: v,
+        agents: [],
+        parentId: g.id,
+        depth: depth + 1
+      };
+      state.agentGroups.push(sub);
+      saveEntity('group', sub.id);
+      render();
+    });
+  } else if (act === 'rename') {
+    showPrompt('소속 이름 변경', '새 이름을 입력하세요', g.name).then(function(v) {
+      if (!v) return;
+      var realGroup = findById(state.agentGroups, g.id);
+      if (realGroup) {
+        realGroup.name = v;
+        saveEntity('group', realGroup.id);
+      }
+      render();
+    });
+  } else if (act === 'move') {
+    var realGroup = findById(state.agentGroups, g.id);
+    if (realGroup) openParentChangeModal('group', realGroup);
+  } else if (act === 'del') {
+    var descendantCount = 0;
+    function countDesc(n) {
+      (n.children || []).forEach(function(c) {
+        descendantCount++;
+        countDesc(c);
+      });
+    }
+    countDesc(g);
+    var msg = '「' + g.name + '」 소속을 삭제합니다. 소속된 요원(' + g.agents.length + '명)과 그들의 사진·이미지·이모티콘·첨부파일이 모두 저장소에서 제거됩니다.';
+    if (descendantCount > 0) msg += '\n\n⚠ 하위 소속 ' + descendantCount + '개도 함께 삭제됩니다.';
+    showConfirm('소속 삭제', msg, '삭제').then(function(v) {
+      if (!v) return;
+      var toDelete = [g.id];
+      function collectDesc(n) {
+        (n.children || []).forEach(function(c) {
+          toDelete.push(c.id);
+          collectDesc(c);
+        });
+      }
+      collectDesc(g);
+
+      var urls = [];
+      toDelete.forEach(function(gid) {
+        var rg = findById(state.agentGroups, gid);
+        if (!rg) return;
+        rg.agents.forEach(function(a) {
+          if (a.photo) urls.push(a.photo);
+          urls = urls.concat(collectBlockUrls(a.blocks));
+          state.emoticons.filter(function(e) { return e.ownerId === a.id; }).forEach(function(e) {
+            if (e.url) urls.push(e.url);
+          });
+        });
+      });
+      deleteStorageFiles(urls);
+
+      state.agentGroups = state.agentGroups.filter(function(x) { return toDelete.indexOf(x.id) < 0 });
+
+      toDelete.forEach(function(gid) {
+        sb.from('agent_groups').delete().eq('id', gid).then(function(){});
+      });
+
+      render();
+    });
+  }
+}
+
 function openFolderActionsMenu(type, folder, anchorEl) {
   // Popover menu near anchor
   var existing = document.querySelector('.folder-actions-popover');
@@ -3213,131 +3353,26 @@ function renderAgentsList(view) {
 
     var group = document.createElement('div');
     group.className = 'agent-group depth-' + depth;
+    if (depth === 0) group.setAttribute('data-root-group-id', g.id);
 
     var head = document.createElement('div');
     head.className = 'agent-group-header';
     var actions = '';
     if (isMaster()) {
-      var addSub = depth < 2 ? '<button class="btn-sm" data-act="addsub">+ 하위 소속</button>' : '';
-      actions =
-        '<button class="btn-sm" data-act="add">+ 요원 추가</button>' +
-        addSub +
-        '<button class="btn-sm" data-act="rename">이름 변경</button>' +
-        '<button class="btn-sm" data-act="move">⇄ 위치 변경</button>' +
-        '<button class="btn-sm danger" data-act="del">소속 삭제</button>';
+      // Kebab menu button only — actions hidden inside popover
+      actions = '<button class="btn-sm group-kebab-btn" data-act="kebab" title="소속 메뉴">⋯</button>';
     }
+    var dragHandleHtml = (isMaster() && depth === 0) ? '<div class="group-drag-handle" title="드래그로 순서 변경">⋮⋮</div>' : '';
     head.innerHTML =
+      dragHandleHtml +
       '<div class="agent-group-title">' + esc(g.name) + ' <span class="agc-sub">● ' + visibleAgents.length + ' AGENTS</span></div>' +
       '<div class="agent-group-actions">' + actions + '</div>';
 
-    var addBtn = head.querySelector('[data-act="add"]');
-    if (addBtn) addBtn.onclick = function() {
-      if (!isMaster()) { alert('master 권한이 필요합니다'); return; }
-      var a = {
-        id: genId('agent'),
-        name: '████ ████',
-        idNo: '000-0000',
-        rank: '요원',
-        unit: g.name,
-        talent: '일반',
-        photo: '',
-        account: null,
-        role: 'member',
-        visibility: 'public',
-        ownerId: currentUser ? currentUser.agentId : null,
-        editorIds: [],
-        blocks: []
-      };
-      // Push to actual group in state (not the tree clone)
-      var realGroup = findById(state.agentGroups, g.id);
-      if (realGroup) realGroup.agents.push(a);
-      saveEntity('agent', a.id);
-      openDetail('agent', a.id);
-    };
-    var addSubBtn = head.querySelector('[data-act="addsub"]');
-    if (addSubBtn) addSubBtn.onclick = function() {
-      if (!isMaster()) return;
-      showPrompt('하위 소속 생성', '「' + g.name + '」 아래에 생성할 소속 이름을 입력하세요').then(function(v) {
-        if (!v) return;
-        var sub = {
-          id: genId('group'),
-          name: v,
-          agents: [],
-          parentId: g.id,
-          depth: depth + 1
-        };
-        state.agentGroups.push(sub);
-        saveEntity('group', sub.id);
-        render();
-      });
-    };
-    var renameBtn2 = head.querySelector('[data-act="rename"]');
-    if (renameBtn2) renameBtn2.onclick = function() {
-      showPrompt('소속 이름 변경', '새 이름을 입력하세요', g.name).then(function(v) {
-        if (!v) return;
-        var realGroup = findById(state.agentGroups, g.id);
-        if (realGroup) {
-          realGroup.name = v;
-          saveEntity('group', realGroup.id);
-        }
-        render();
-      });
-    };
-    var moveBtn = head.querySelector('[data-act="move"]');
-    if (moveBtn) moveBtn.onclick = function() {
-      var realGroup = findById(state.agentGroups, g.id);
-      if (realGroup) openParentChangeModal('group', realGroup);
-    };
-    var delBtn2 = head.querySelector('[data-act="del"]');
-    if (delBtn2) delBtn2.onclick = function() {
-      // Count descendants
-      var descendantCount = 0;
-      function countDesc(n) {
-        n.children.forEach(function(c) {
-          descendantCount++;
-          countDesc(c);
-        });
-      }
-      countDesc(g);
-      var msg = '「' + g.name + '」 소속을 삭제합니다. 소속된 요원(' + g.agents.length + '명)과 그들의 사진·이미지·이모티콘·첨부파일이 모두 저장소에서 제거됩니다.';
-      if (descendantCount > 0) msg += '\n\n⚠ 하위 소속 ' + descendantCount + '개도 함께 삭제됩니다.';
-      showConfirm('소속 삭제', msg, '삭제').then(function(v) {
-        if (!v) return;
-        // Collect all affected group IDs (this + descendants)
-        var toDelete = [g.id];
-        function collectDesc(n) {
-          n.children.forEach(function(c) {
-            toDelete.push(c.id);
-            collectDesc(c);
-          });
-        }
-        collectDesc(g);
-
-        // Delete all agents in all affected groups
-        var urls = [];
-        toDelete.forEach(function(gid) {
-          var rg = findById(state.agentGroups, gid);
-          if (!rg) return;
-          rg.agents.forEach(function(a) {
-            if (a.photo) urls.push(a.photo);
-            urls = urls.concat(collectBlockUrls(a.blocks));
-            state.emoticons.filter(function(e) { return e.ownerId === a.id; }).forEach(function(e) {
-              if (e.url) urls.push(e.url);
-            });
-          });
-        });
-        deleteStorageFiles(urls);
-
-        // Remove groups from state
-        state.agentGroups = state.agentGroups.filter(function(x) { return toDelete.indexOf(x.id) < 0 });
-
-        // Delete from DB
-        toDelete.forEach(function(gid) {
-          sb.from('agent_groups').delete().eq('id', gid).then(function(){});
-        });
-
-        render();
-      });
+    // Wire kebab menu
+    var kebabBtn = head.querySelector('[data-act="kebab"]');
+    if (kebabBtn) kebabBtn.onclick = function(e) {
+      e.stopPropagation();
+      openGroupActionsMenu(g, depth, e.currentTarget);
     };
 
     group.appendChild(head);
@@ -3441,6 +3476,57 @@ function renderAgentsList(view) {
           }
         }
       });
+    });
+
+    // Sortable for root-level groups (drag whole group to reorder)
+    Sortable.create(wrap, {
+      animation: 150,
+      handle: '.group-drag-handle',
+      draggable: '.agent-group.depth-0',
+      ghostClass: 'group-ghost',
+      chosenClass: 'group-chosen',
+      delay: 0,
+      delayOnTouchOnly: true,
+      touchStartThreshold: 5,
+      onEnd: async function(evt) {
+        if (evt.oldIndex === evt.newIndex) return;
+        // Get new order of root group IDs
+        var newOrder = Array.from(wrap.querySelectorAll('.agent-group.depth-0'))
+          .map(function(el) { return el.getAttribute('data-root-group-id'); });
+
+        // Reorder state.agentGroups: place root groups in newOrder order, keep child groups attached after their parents
+        var rootIds = newOrder.filter(Boolean);
+        var roots = rootIds.map(function(id) { return findById(state.agentGroups, id); }).filter(Boolean);
+        var nonRoots = state.agentGroups.filter(function(g) { return g.parentId; });
+
+        // Rebuild state.agentGroups: [root1, root1's descendants..., root2, root2's descendants...]
+        var rebuilt = [];
+        roots.forEach(function(root) {
+          rebuilt.push(root);
+          // Add descendants of this root (in original order)
+          function addDescOf(parentId) {
+            nonRoots.forEach(function(ng) {
+              if (ng.parentId === parentId && rebuilt.indexOf(ng) < 0) {
+                rebuilt.push(ng);
+                addDescOf(ng.id);
+              }
+            });
+          }
+          addDescOf(root.id);
+        });
+        state.agentGroups = rebuilt;
+
+        // Save each root group (sort_order auto-derived from array index)
+        try {
+          for (var i = 0; i < state.agentGroups.length; i++) {
+            await saveEntity('group', state.agentGroups[i].id);
+          }
+          render();
+        } catch (e) {
+          console.error('Group reorder failed:', e);
+          render();
+        }
+      }
     });
   }
 }

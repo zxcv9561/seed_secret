@@ -3808,17 +3808,10 @@ body.is-dragging-agent .agent-grid.is-empty:hover {
     overflow-wrap: break-word;
   }
 
-  /* Cap overly-large inline font-size on mobile (only if > 32px would overflow) 
-     Let smaller custom sizes pass through unchanged */
-  .block [style*="font-size: 3"],
-  .block [style*="font-size: 4"],
-  .block [style*="font-size: 5"],
-  .block [style*="font-size: 6"],
-  .block [style*="font-size: 7"],
-  .block [style*="font-size: 8"],
-  .block [style*="font-size: 9"] {
-    font-size: clamp(20px, 7vw, 32px) !important;
-  }
+  /* Allow user-selected font-sizes to work normally on mobile.
+     Just ensure they don't break viewport — overflow-wrap handles long words,
+     and max-width: 100% on parent prevents horizontal overflow.
+     We trust the user's font-size choice. */
 
   /* Images in blocks: always fit */
   .block img {
@@ -4531,4 +4524,64 @@ body.is-dragging-agent .agent-grid.is-empty:hover {
   }
   /* Reduce indent step on mobile (24 → 18px effective: kept 24 but less padding-left base) */
   /* Keep the inline padding-left as-is, just rely on color differentiation */
+}
+
+/* ═══════════════════════════════════════════════════════════
+   GROUP HEADER — kebab menu + drag handle
+   ═══════════════════════════════════════════════════════════ */
+.agent-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.group-drag-handle {
+  cursor: grab;
+  color: var(--ink-muted);
+  font-weight: 900;
+  letter-spacing: -2px;
+  font-size: 16px;
+  padding: 4px 6px;
+  user-select: none;
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity 0.15s, color 0.15s;
+}
+.group-drag-handle:hover {
+  opacity: 1;
+  color: var(--ink);
+}
+.group-drag-handle:active {
+  cursor: grabbing;
+}
+.group-kebab-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+/* Group dragging states */
+.group-ghost {
+  opacity: 0.3;
+  background: var(--paper-2) !important;
+}
+.group-chosen {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  z-index: 5;
+}
+
+/* On mobile: handle always visible */
+@media (max-width: 768px) {
+  .group-drag-handle {
+    opacity: 1;
+    font-size: 14px;
+    padding: 3px 4px;
+  }
+  .group-kebab-btn {
+    width: 36px;
+    height: 36px;
+  }
 }
